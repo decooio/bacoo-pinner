@@ -60,7 +60,7 @@ router.get(
 );
 
 router.get('/pins/:requestId', async (req: any, res) => {
-    const r = await PinObject.selectPinObjectByRequestIdAndUserId(req.params.requestId, req.apiKeyId)
+    const r = await PinObject.selectPinObjectByRequestIdAndUserId(req.params.requestId, req.apikeyId)
     if (_.isEmpty(r)) {
         res.status(400).json(Failure.commonErr('not found'));
     } else {
@@ -74,10 +74,9 @@ router.post(
         body('cid').isString().notEmpty().withMessage('cid not empty'),
         body('name').optional().isString(),
         body('origins').optional().isArray(),
-        param('requstId').isString().notEmpty(),
     ]),
     async (req: any, res) => {
-        const r = await replacePin(req.apiKeyId, req.userId, req.params.requestId, Pin.parsePinFromRequest(req));
+        const r = await replacePin(req.apikeyId, req.userId, req.params.requestId, Pin.parsePinFromRequest(req));
         return res.json(r);
     }
 );
@@ -90,12 +89,12 @@ router.post(
         body('origins').optional().isArray(),
     ]),
     async (req: any, res) => {
-        const r = await pinByCid(req.userId, req.apiKeyId, Pin.parsePinFromRequest(req));
+        const r = await pinByCid(req.userId, req.apikeyId, Pin.parsePinFromRequest(req));
         res.json(r);
     }
 );
 
 router.delete('/pins/:requestId', async (req: any, res) => {
-    await deleteByRequestId(req.params.requestId, req.apiKeyId);
+    await deleteByRequestId(req.userId, req.apikeyId, req.params.requestId);
     res.sendStatus(200);
 });

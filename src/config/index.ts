@@ -1,12 +1,12 @@
 export const CONFIGS = {
     common: {
         dev: getEnv('ENV', 'dev') === 'dev',
+        env: getEnv('ENV', 'dev'),
         project_name: getEnv('PROJECT_NAME', 'bacoo-pinner'),
         cluster: getEnv('CLUSTER', 'true')
     },
     server: {
         port: getEnv('PORT', 3000),
-        name: getEnv('PROJECT_NAME', 'bacoo-pinner'),
     },
     evolution: {
         schemaTable: 'data_migration',
@@ -37,12 +37,11 @@ export const CONFIGS = {
     },
     ipfs: {
         delegates: [] as string[],
-        hostLocal: getEnv('IPFS_HOST_LOCAL', 'http://localhost:5001'),
-        hostThunder: getEnv('IPFS_HOST_THUNDER', 'http://localhost:5001'),
-        ipfsPinAddTimeOut: getEnv('IPFS_PIN_ADD_TIMEOUT', 1000 * 60 * 60 * 1),
-        addBatchThreadSize: getEnv('PIN_ADD_THREAD_SIZE', 5),
-        addRetryTimes: getEnv('IPFS_PIN_ADD_RETRY_TIMES', 3),
-        thunderAuthSignature: getEnv('IPFS_THUNDER_AUTH_SIGNATURE', ''),
+        authSignature: getEnv('IPFS_AUTH_SIGNATURE', ''),
+    },
+    dingtalk: {
+        notificationUrl: getEnv('WARNING_URL', ''),
+        notificationSecret: getEnv('WARNING_SECRET', ''),
     },
 }
 

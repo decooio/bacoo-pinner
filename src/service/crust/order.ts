@@ -6,6 +6,7 @@ import createKeyring from './krp';
 import {logger} from "../../util/logger";
 import {CONFIGS} from "../../config";
 import {sleep} from "../../util/common";
+import {sendDinkTalkMsg} from "../../util/dinktalk";
 
 async function checkingAccountBalance(api: ApiPromise): Promise<boolean> {
   try {
@@ -21,10 +22,10 @@ async function checkingAccountBalance(api: ApiPromise): Promise<boolean> {
     logger.error(
       `orderBalance: ${orderBalance.toFixed(5)} min: ${minimumAmount}`
     );
-    // await sendMarkdown('baitech-pinner balance warning',
-    //     `### baitech-pinner(${CONFIGS.server.name}) \n address: ${krp.address } \n current balance: ${orderBalance
-    //     .dividedBy(1_000_000_000_000)
-    //     .toString()}cru, min balance: ${minimumAmount}cru`);
+    await sendDinkTalkMsg(`${CONFIGS.common.project_name}(${CONFIGS.common.env}) balance warning`,
+        `### ${CONFIGS.common.project_name}(${CONFIGS.common.env}) \n address: ${krp.address } \n current balance: ${orderBalance
+        .dividedBy(1_000_000_000_000)
+        .toString()}cru, min balance: ${minimumAmount}cru`);
   } catch (e) {
     logger.warn(`check account balance failed: ${e.message}`);
   }

@@ -26,7 +26,7 @@ export class IPFSApi {
         const result = await http.request({
             url,
             method: 'POST',
-            headers: { Authorization: `Basic ${CONFIGS.ipfs.thunderAuthSignature}` },
+            headers: { Authorization: `Basic ${CONFIGS.ipfs.authSignature}` },
             timeout: DEFAULT_IPFS_CALL_TIMEOUT
         });
         return result;

@@ -9,13 +9,12 @@ export enum TextMatchingStrategy {
     ipartial = 'ipartial',
 };
 
-export type PinCommonStatus = 'queued' | 'pinning' | 'pinned' | 'failed';
+export type PinCommonStatus = 'queued' | 'pinning' | 'pinned';
 
 export enum PinFilePinStatus {
     queued ,
     pinning,
     pinned,
-    failed
 }
 
 export enum FileType {
@@ -36,7 +35,7 @@ export class PinObjectsQuery {
 
     static parseQuery(req: any): PinObjectsQuery {
         const query = new PinObjectsQuery();
-        query.apikeyId = _.parseInt(req.apiKeyId as string);
+        query.apikeyId = _.parseInt(req.apikeyId as string);
         query.cid = req.query.cid ? (req.query.cid as string).split(',') : null;
         query.name = req.query.name as string;
         query.match = req.query.match as string;
@@ -126,7 +125,6 @@ export enum PinObjectStatus {
     queued = 'queued',
     pinning = 'pinning',
     pinned = 'pinned',
-    failed = 'failed',
 };
 
 export class Failure {

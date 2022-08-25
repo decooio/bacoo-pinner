@@ -33,7 +33,7 @@ export class Gateway {
         const result = await CommonDAO.queryForObj('SELECT\n' +
             '\tg.`host` \n' +
             'FROM\n' +
-            '\tgateway_user gu ON a.user_id = gu.user_id\n' +
+            '\tgateway_user gu\n' +
             '\tJOIN gateway g ON g.id = gu.gateway_id\n' +
             'WHERE gu.user_id = ? and g.valid = ? and g.node_type = ? limit 1', [userId, Valid.valid, NodeType.premium]);
         if (!_.isEmpty(result)) {

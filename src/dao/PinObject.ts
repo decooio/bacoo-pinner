@@ -60,10 +60,10 @@ export class PinObject {
         return pinResult;
     }
 
-    static async selectPinObjectByRequestIdAndUserId(requestId: string, apiKeyId: number) : Promise<PinStatus>{
+    static async selectPinObjectByRequestIdAndUserId(requestId: string, apikeyId: number) : Promise<PinStatus>{
         const result = await CommonDAO.queryForObj(
             `select pin_object.*, pin_file.pin_status as 'status' from pin_object join pin_file on pin_object.cid = pin_file.cid where pin_object.deleted = 0 and pin_object.api_key_id = ? and pin_object.request_id = ?`,
-            [apiKeyId, requestId]
+            [apikeyId, requestId]
         );
         if (!_.isEmpty(result)) {
             return PinStatus.parseBaseData(result);
