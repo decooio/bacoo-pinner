@@ -10,8 +10,8 @@ export async function sendDinkTalkMsg(
 ) {
     try {
         const time = Date.now();
-        const secret = CONFIGS.dingtalk.notificationSecret;
-        const notificationUrl = CONFIGS.dingtalk.notificationUrl;
+        const secret = CONFIGS.notification.secret;
+        const notificationUrl = CONFIGS.notification.url;
         const hmacCode = crypto
             .createHmac('sha256', secret as string)
             .update(`${time}\n${secret}`)

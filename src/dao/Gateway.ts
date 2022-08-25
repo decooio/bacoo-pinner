@@ -1,9 +1,10 @@
 import sequelize from '../db/mysql';
 import {DataTypes, Sequelize} from "sequelize";
 import {NodeType} from "../type/gateway";
-import {Valid} from "../type/common";
+import {Deleted, Valid} from "../type/common";
 import {CommonDAO} from "./Common";
 import * as _ from "lodash";
+
 export class Gateway {
     static model = sequelize.define(
         'gateway',
@@ -44,6 +45,34 @@ export class Gateway {
                 node_type: NodeType.free
             },
             order: [['id', 'desc']],
+            limit: 1,
+        });
+        return gateway.host;
+    }
+
+    static async queryGatewayHostByCid(cid: string): Promise<string | null> {
+        const result = await CommonDAO.queryForObj('SELECT\n' +
+            '\tg.`host` \n' +
+            'FROM\n' +
+            '\tpin_object o\n' +
+            '\tJOIN user_api_key a ON a.id = o.api_key_id\n' +
+            '\tJOIN gateway_user gu ON gu.user_id = a.user_id\n' +
+            '\tJOIN gateway g ON g.id = gu.gateway_id \n' +
+            'WHERE\n' +
+            '\to.deleted = ? \n' +
+            '\tAND a.valid = ? \n' +
+            '\tAND g.valid = ? \n' +
+            '\tAND o.cid = ? \n' +
+            'ORDER BY\n' +
+            '\tg.node_type DESC \n' +
+            '\tLIMIT 1', [Deleted.undeleted, Valid.valid, Valid.valid, cid]);
+        if (!_.isEmpty(result)) {
+            return result.host;
+        }
+        const gateway = await this.model.findOne({
+            where: {
+                node_type: NodeType.free
+            },
             limit: 1,
         });
         return gateway.host;

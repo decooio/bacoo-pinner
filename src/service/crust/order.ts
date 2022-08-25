@@ -7,14 +7,15 @@ import {logger} from "../../util/logger";
 import {CONFIGS} from "../../config";
 import {sleep} from "../../util/common";
 import {sendDinkTalkMsg} from "../../util/dinktalk";
+import {api} from "./api";
 
-async function checkingAccountBalance(api: ApiPromise): Promise<boolean> {
+const DECIMAL = 1_000_000_000_000;
+
+export async function checkingAccountBalance(seed: string): Promise<boolean> {
   try {
-    await api.isReady;
-    const seeds = CONFIGS.crust.seed;
-    const krp = createKeyring(seeds as string);
-    let orderBalance = await getAccountBalance(api, krp.address);
-    orderBalance = orderBalance.dividedBy(1_000_000_000_000);
+    await api.isReadyOrError;
+    const krp = createKeyring(seed as string);
+    let orderBalance = (await getAccountBalance(krp.address)).dividedBy(DECIMAL);
     const minimumAmount = CONFIGS.crust.minimumAmount;
     if (orderBalance.comparedTo(minimumAmount) >= 0) {
       return true;
@@ -23,32 +24,16 @@ async function checkingAccountBalance(api: ApiPromise): Promise<boolean> {
       `orderBalance: ${orderBalance.toFixed(5)} min: ${minimumAmount}`
     );
     await sendDinkTalkMsg(`${CONFIGS.common.project_name}(${CONFIGS.common.env}) balance warning`,
-        `### ${CONFIGS.common.project_name}(${CONFIGS.common.env}) \n address: ${krp.address } \n current balance: ${orderBalance
-        .dividedBy(1_000_000_000_000)
-        .toString()}cru, min balance: ${minimumAmount}cru`);
+        `### ${CONFIGS.common.project_name}(${CONFIGS.common.env}) \n address: ${krp.address } \n current balance: ${orderBalance}cru, min balance: ${minimumAmount}cru`);
   } catch (e) {
     logger.warn(`check account balance failed: ${e.message}`);
+    await sendDinkTalkMsg(`${CONFIGS.common.project_name}(${CONFIGS.common.env}) balance warning`,
+        `### ${CONFIGS.common.project_name}(${CONFIGS.common.env}) \n check account balance failed: ${e.message}`);
   }
   return false;
 }
-
-export async function checkAccountBalanceAndWarning(
-  api: ApiPromise
-): Promise<boolean> {
-  let retryTimes = 0;
-  while (retryTimes <= CONFIGS.crust.checkAmountRetryTimes) {
-    if (await checkingAccountBalance(api)) {
-      return true;
-    }
-    await sleep(CONFIGS.crust.checkAmountTimeAwait as number);
-    retryTimes++;
-  }
-  return false;
-}
-
 
 export async function getAccountBalance(
-  api: ApiPromise,
   account: string
 ): Promise<BigNumber> {
   await api.isReadyOrError;
@@ -58,7 +43,6 @@ export async function getAccountBalance(
 }
 
 export async function placeOrder(
-  api: ApiPromise,
   krp: KeyringPair,
   fileCID: string,
   fileSize: number,
@@ -124,7 +108,7 @@ interface IFileInfo {
   replicas: any;
 }
 
-export async function getOrderState(api: ApiPromise, cid: string) {
+export async function getOrderState(cid: string) {
   await api.isReadyOrError;
   const res = await api.query.market.filesV2(cid);
   const data = res ? JSON.parse(JSON.stringify(res)) : null;

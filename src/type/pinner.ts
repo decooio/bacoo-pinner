@@ -9,12 +9,13 @@ export enum TextMatchingStrategy {
     ipartial = 'ipartial',
 };
 
-export type PinCommonStatus = 'queued' | 'pinning' | 'pinned';
+export type PinCommonStatus = 'queued' | 'pinning' | 'pinned' | 'failed';
 
 export enum PinFilePinStatus {
     queued ,
     pinning,
     pinned,
+    failed
 }
 
 export enum FileType {
@@ -125,6 +126,7 @@ export enum PinObjectStatus {
     queued = 'queued',
     pinning = 'pinning',
     pinned = 'pinned',
+    failed = 'failed',
 };
 
 export class Failure {

@@ -12,17 +12,17 @@ export class IPFSApi {
     }
 
     async fileStat(cid: string): Promise<IPFSFileState> {
-        const result = await this.ipfsCall(`${this.host}/api/v0/files/stat?arg=/ipfs/${cid}`);
+        const result = await IPFSApi.ipfsCall(`${this.host}/api/v0/files/stat?arg=/ipfs/${cid}`);
         return { ...result.data };
     }
 
-    async fileLs(cid: string): Promise<any> {
-        const result = await this.ipfsCall(`${this.host}/api/v0/ls?arg=/ipfs/${cid}`);
+    static async fileLs(cid: string, host: string): Promise<any> {
+        const result = await IPFSApi.ipfsCall(`${host}/api/v0/ls?arg=/ipfs/${cid}`);
         return { ...result.data };
     }
 
 
-    private async ipfsCall(url: string, timeout: number = DEFAULT_IPFS_CALL_TIMEOUT): Promise<any> {
+    private static async ipfsCall(url: string, timeout: number = DEFAULT_IPFS_CALL_TIMEOUT): Promise<any> {
         const result = await http.request({
             url,
             method: 'POST',

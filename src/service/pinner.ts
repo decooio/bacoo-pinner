@@ -1,7 +1,7 @@
 import {FileType, Pin, PinFileAnalysisStatus, PinFilePinStatus, PinStatus} from "../type/pinner";
 import {Deleted} from "../type/common";
 import {PinObject} from "../dao/PinObject";
-import {uuid} from "../util/common";
+import {fromDecimal, sleep, timeoutOrError, uuid} from "../util/common";
 import {CONFIGS} from "../config";
 import {Transaction} from "sequelize";
 import sequelize from "../db/mysql";
@@ -10,7 +10,14 @@ import {IPFSApi} from "./ipfs";
 import {PinFile} from "../dao/PinFile";
 import {BillingPlan} from "../dao/BillingPlan";
 import BigNumber from "bignumber.js";
-import {logger} from "../util/logger";
+import {defaultLogger, logger} from "../util/logger";
+import {checkingAccountBalance, getOrderState, placeOrder} from "./crust/order";
+import {sendDinkTalkMsg} from "../util/dinktalk";
+import createKeyring from './crust/krp';
+import {api} from "./crust/api";
+import {KeyringPair} from "@polkadot/keyring/types";
+import {Logger} from "winston";
+import {PinFolderFile} from "../dao/PinFolderFile";
 
 const dayjs = require("dayjs");
 const moment = require('moment');
@@ -129,7 +136,7 @@ export async function pinByCid(userId: number, apikeyId: number, pin: Pin): Prom
         const host = await Gateway.queryGatewayHostByApiKeyId(userId);
         const fileStat = await new IPFSApi(host).fileStat(pin.cid);
         fileType = fileStat.Type === 'file' ? FileType.file : FileType.folder;
-        fileSize = fileStat.Size;
+        fileSize = fileStat.CumulativeSize;
     }
     const pinObj = {
         name: pin.name ? pin.name : pin.cid,
@@ -146,7 +153,7 @@ export async function pinByCid(userId: number, apikeyId: number, pin: Pin): Prom
         cid: pin.cid,
         pin_status: PinFilePinStatus.queued,
         file_type: _.isEmpty(existPinFile) ? fileType : existPinFile.file_type,
-        analysis_status: PinFileAnalysisStatus.unfinished,
+        analysis_status: fileType === FileType.file ? PinFileAnalysisStatus.finished : PinFileAnalysisStatus.unfinished,
         order_retry_times: 0,
         file_size: fileSize,
         calculated_at: 0,
@@ -206,22 +213,304 @@ export async function pinByCid(userId: number, apikeyId: number, pin: Pin): Prom
     });
 }
 
-// TODO: Analysis files
 export async function analysisPinFolderFiles() {
-
+    const logger = defaultLogger(`analysis-folder`);
+    while (true) {
+        try {
+            const folders = await PinFile.model.findAll({
+                attributes: ['id', 'cid'],
+                where: {
+                    deleted: Deleted.undeleted,
+                    analysis_status: PinFileAnalysisStatus.unfinished
+                },
+                order: [['id', 'asc']],
+                limit: 30
+            });
+            if (_.isEmpty(folders)) {
+                await sleep(500);
+                continue;
+            }
+            const chunk = _.chunk(folders, CONFIGS.pin.folderAnalysisThreadSize as number);
+            await Promise.all(_.map(chunk, async (files: any) => {
+                for (const f of files) {
+                    await analysisFolder(f.cid, f.id, logger);
+                }
+            })).catch(e => {
+                logger.error(`Analysis chunk folders err: ${e.stack}`);
+            })
+        } catch (e) {
+            logger.error(`Analysis folders err: ${e.stack}`);
+            await sleep(1000);
+        }
+    }
 }
 
-// TODO: Order files
+async function queryFilesInFolder(cid: string, host: string): Promise<IPFSFileLsStat[]> {
+    const data = await IPFSApi.fileLs(cid, host);
+    const result = _.get(data, 'Objects[0].Links', []);
+    if (_.isEmpty(result)) {
+        return [];
+    }
+    return _.map(result, (f: any) => ({
+        cid: f.Hash,
+        size: `${f.Size}`,
+        type: f.Type === 2 ? FileType.file : FileType.folder
+    }));
+}
+
+async function analysisFolder(cid: string, fileId: number, logger: Logger) {
+    try {
+        const host = await Gateway.queryGatewayHostByCid(cid);
+        const data = await IPFSApi.fileLs(cid, host);
+        const result = _.get(data, 'Objects[0].Links', []);
+        let resultFiles: IPFSFileLsStat[] = [];
+        let folders: FolderIndex[] = [];
+        const maxDeep = CONFIGS.pin.folderAnalysisMaxDeep as number;
+        let deep = 1;
+        if (!_.isEmpty(result)) {
+            resultFiles = _.concat(resultFiles, _.map(result, (f: any) => {
+                if (f.Type === 2) {
+                    folders.push({
+                        cid: f.Hash,
+                    })
+                }
+                return {
+                    cid: f.Hash,
+                    size: `${f.Size}`,
+                    type: f.Type === 2 ? FileType.file : FileType.folder
+                }
+            }));
+        }
+        while((deep <= maxDeep) || _.isEmpty(folders)) {
+            let deepFolders: FolderIndex[] = [];
+            for (const f of folders) {
+                const folderFiles = await queryFilesInFolder(f.cid, host);
+                if (!_.isEmpty(folderFiles)) {
+                    resultFiles = _.concat(resultFiles, _.map(result, (f: any) => {
+                        if (f.Type === 2) {
+                            deepFolders.push({
+                                cid: f.Hash,
+                            })
+                        }
+                        return {
+                            cid: f.Hash,
+                            size: `${f.Size}`,
+                            type: f.Type === 2 ? FileType.file : FileType.folder
+                        }
+                    }));
+                }
+            }
+            folders = deepFolders;
+            deep++;
+        }
+        const allFiles = _(resultFiles).groupBy((i: IPFSFileLsStat) => i.cid).toPairs().map((i: any) => {
+            return i[1][0] as IPFSFileLsStat;
+        }).value();
+        for (const f of allFiles) {
+            await PinFolderFile.model.findOrCreate( {
+                defaults: {
+                    pin_file_id: fileId,
+                    cid: f.cid,
+                    file_size: f.size,
+                    file_type: f.type
+                },
+                where: {
+                    pin_file_id: fileId,
+                    cid: f.cid
+                }
+            });
+        }
+    } catch (e) {
+        logger.error(`Analysis Folder failed: ${e.stack}`);
+    }
+}
+
+
+interface IPFSFileLsStat {
+    cid: string,
+    size: string,
+    type: FileType
+}
+
+interface FolderIndex {
+    cid: string,
+}
+
 export async function orderFiles() {
+    const logger = defaultLogger(`file-order`);
+    while(true) {
+        try {
+            const pinFiles = await PinFile.model.findAll({
+                where: {
+                    pin_status: PinFilePinStatus.queued,
+                    deleted: Deleted.undeleted
+                },
+                order: [['id', 'ASC']],
+                limit: 1000
+            });
+            if (_.isEmpty(pinFiles)) {
+                await sleep(1000 * 6);
+                continue;
+            }
+            await api.isReadyOrError
+            const seedList = (CONFIGS.crust.seed as string).split(',');
+            const chunkList = _.chunk(pinFiles, seedList.length);
+            await Promise.all(_.map(seedList, async (seedBase64: string, i: number) => {
+                if (chunkList[i]) {
+                    const seed = Buffer.from(seedBase64, 'base64').toString();
+                    const krp = createKeyring(seed);
+                    const balanceCheck = await checkingAccountBalance(seed);
+                    if (balanceCheck) {
+                        for (const file of chunkList[i]) {
+                            await placeOrderFile(file, krp, logger);
+                            await sleep(CONFIGS.crust.orderTimeAwait as number);
+                        }
+                    }
+                }
+            })).catch((e) => {
+                logger.error(`Batch order files failed: ${e.stack}`)
+            });
+            await sleep(1000 * 6);
+        } catch (e) {
+            logger.error(`Place order files failed will retry in 3 seconds: ${e.stack}`)
+            await sleep(1000 * 3);
+        }
+    }
+}
+
+async function placeOrderFile(file: any, krp: KeyringPair, logger: Logger) {
+    let orderFailed = false;
+    try {
+        const res = await timeoutOrError(
+            'Crust place order',
+            placeOrder(
+                krp,
+                file.cid,
+                file.file_size,
+                fromDecimal(CONFIGS.crust.tips).toFixed(0),
+                undefined
+            ),
+            CONFIGS.crust.transactionTimeout as number
+        );
+        if (!res) {
+            orderFailed = true;
+        }
+    } catch (e) {
+        logger.error(`Place order file: ${file.cid} failed: ${e.stack}`);
+        await sleep(CONFIGS.crust.orderTimeAwait as number);
+        orderFailed = true;
+    } finally {
+        const retryTime = orderFailed ? (file.file_size + 1) : file.file_size;
+        const pinFailed = retryTime >= CONFIGS.crust.orderRetryTimes;
+        const pinStatus = pinFailed ? PinFilePinStatus.failed : (orderFailed ? PinFilePinStatus.queued : PinFilePinStatus.pinning);
+        if (pinFailed) {
+            await sendDinkTalkMsg(`${CONFIGS.common.project_name}(${CONFIGS.common.env}) pin file failed`,
+                `### ${CONFIGS.common.project_name}(${CONFIGS.common.env}) \n pin file failed \n Pin file(${file.cid}) failed more then retry times(${CONFIGS.crust.orderRetryTimes}), please check and requeue`);
+        }
+        await PinFile.model.update({
+            pin_status: pinStatus,
+        }, {
+            where: {
+                id: file.id
+            }
+        });
+    }
 
 }
 
-// TODO: Update pin file status
 export async function updatePinFileStatus() {
-
+    const logger = defaultLogger(`file-status-updater`);
+    while (true) {
+        try {
+            const pinFiles = await PinFile.model.findAll({
+                where: {
+                    pin_status: PinFilePinStatus.pinning,
+                    deleted: Deleted.undeleted
+                },
+                order: [['id', 'ASC']],
+                limit: 1000
+            });
+            if (_.isEmpty(pinFiles)) {
+                await sleep(1000 * 6);
+                continue;
+            }
+            for (const file of pinFiles) {
+                const fileState = await getOrderState(file.cid);
+                if (!_.isEmpty(fileState) && fileState.meaningfulData.reported_replica_count >= CONFIGS.crust.validFileSize) {
+                    await PinFile.model.update({
+                        calculated_at: fileState.meaningfulData.calculated_at,
+                        expired_at: fileState.meaningfulData.expired_at,
+                        replica_count: fileState.meaningfulData.reported_replica_count,
+                        pin_status: PinFilePinStatus.pinned,
+                        update_time: dayjs().format('YYYY-MM-DD HH:mm:ss')
+                    }, {
+                        where: {
+                            id: file.id
+                        }
+                    });
+                }
+                await sleep(50);
+            }
+        } catch (e) {
+            logger.error(`Pin file err: ${e.stack}`);
+        }
+    }
 }
 
-// TODO: ReOrder Expiring files
 export async function reOrderExpiringFiles() {
+    while (true) {
+        try {
+            await api.isReadyOrError;
+            const hash = await api.rpc.chain.getFinalizedHead();
+            const block = await api.rpc.chain.getBlock(hash);
+            const finalizeBlock = block.block.header.number.toNumber();
+            const expireBlock = finalizeBlock + (CONFIGS.crust.blockNumberForExpireOrder as number);
+            const expireFiles = await PinFile.model.findAll({
+                where: {
+                    deleted: Deleted.undeleted,
+                    pin_status: PinFilePinStatus.pinned,
+                    expired_at: {
+                        [Op.lt]: expireBlock
+                    }
+                },
+                order: [['id', 'asc']],
+                limit: 1000
+            });
+            if (_.isEmpty(expireFiles)) {
+                await sleep(6 * 1000);
+                continue;
+            }
+            for (const f of expireFiles) {
+                const res = await getOrderState(f.cid);
+                await PinFile.model.update(_.isEmpty(res) ||(res.meaningfulData.expired_at <= expireBlock) ? {
+                    pin_status: PinFilePinStatus.queued,
+                    order_retry_times: 0,
+                } : {
+                    pin_status: PinFilePinStatus.queued,
+                    order_retry_times: 0,
+                    expired_at: res.meaningfulData.expired_at
+                },{
+                    where: {
+                        id: f.id
+                    }
+                });
+                await sleep(100);
+            }
+        } catch (e) {
+            logger.error(`queued expire file failed ${e.stack}`);
+            await sendDinkTalkMsg('queued expire file failed', `${CONFIGS.common.project_name}(${CONFIGS.common.env})queued expire file failed(restart 60 seconds)`);
+            await sleep(60 * 1000);
+        }
+    }
+}
 
+export async function pinJobs() {
+    const fileStatusJob = updatePinFileStatus();
+    const orderFilesJob = orderFiles();
+    const reOrderJob = reOrderExpiringFiles();
+    const analysisFolderJob = analysisPinFolderFiles();
+    return Promise.all([fileStatusJob, orderFilesJob, analysisFolderJob, reOrderJob]).catch(e => {
+        sendDinkTalkMsg(`${CONFIGS.common.project_name}(${CONFIGS.common.env}) pin job err`,
+            `### ${CONFIGS.common.project_name}(${CONFIGS.common.env}) \n pin job err, please check ${e.message}`);
+    });
 }

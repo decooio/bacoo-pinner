@@ -20,17 +20,13 @@ export const CONFIGS = {
         password: getEnv('MYSQL_PASSWORD', 'root'),
     },
     crust: {
-        seed: getEnv('CRUST_SEED', ''),
+        seed: getEnv('CRUST_SEED_LIST', ''),
         chainWsUrl: getEnv('WS_ENDPOINT', 'wss://rpc.crust.network'),
-        defaultFileSize: getEnv('DEFAULT_FILE_SIZE', 2147483648),
         tips: getEnv('CRUST_TIPS', 0),
         validFileSize: getEnv('VALID_FILE_REPLICAS', 30),
         orderTimeAwait: getEnv('ORDER_TIME_AWAIT', 3000),
         orderFailedTimeAwait: getEnv('ORDER_FAILED_TIME_AWAIT', 60000),
         blockNumberForExpireOrder: getEnv('EXPIRE_ORDER_BLOCK_NUMBER', 10 * 60 * 24 * 30),
-        loopTimeAwait: getEnv('LOOP_TIME_AWAIT', 2000),
-        checkAmountTimeAwait: getEnv('CHECK_AMOUNT_TIME_AWAIT', 120000),
-        checkAmountRetryTimes: getEnv('CHECK_AMOUNT_RETRY_TIMES', 3),
         orderRetryTimes: getEnv('ORDER_RETRY_TIMES', 3),
         minimumAmount: getEnv('MINIMUM_AMOUNT', 1),
         transactionTimeout: getEnv('TRANSACTION_TIMEOUT', 60 * 1000),
@@ -39,10 +35,14 @@ export const CONFIGS = {
         delegates: [] as string[],
         authSignature: getEnv('IPFS_AUTH_SIGNATURE', ''),
     },
-    dingtalk: {
-        notificationUrl: getEnv('WARNING_URL', ''),
-        notificationSecret: getEnv('WARNING_SECRET', ''),
+    notification: {
+        url: getEnv('WARNING_URL', ''),
+        secret: getEnv('WARNING_SECRET', ''),
     },
+    pin: {
+        folderAnalysisThreadSize: getEnv('FOLDER_ANALYSIS_THREAD_SIZE', 3),
+        folderAnalysisMaxDeep: getEnv('FOLDER_ANALYSIS_MAX_SIZE', 2)
+    }
 }
 
 function getEnv(key: string, defaultValue: string | number): string | number {
