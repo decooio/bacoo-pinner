@@ -54,8 +54,7 @@ export async function placeOrder(
   // Generate transaction
   // fileCid, fileSize, tip, 0
   const pso = api.tx.market.placeStorageOrder(fileCID, fileSize, tip, memo);
-  const txRes = JSON.parse(JSON.stringify(await sendTx(krp, pso)));
-  return JSON.parse(JSON.stringify(txRes));
+  return sendTx(krp, pso)
 }
 
 export async function sendTx(krp: KeyringPair, tx: SubmittableExtrinsic) {

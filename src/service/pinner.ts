@@ -1,7 +1,7 @@
 import {FileType, Pin, PinFileAnalysisStatus, PinFilePinStatus, PinStatus} from "../type/pinner";
 import {Deleted} from "../type/common";
 import {PinObject} from "../dao/PinObject";
-import {fromDecimal, sleep, timeoutOrError, uuid} from "../util/common";
+import {fromDecimal, sleep, uuid} from "../util/common";
 import {CONFIGS} from "../config";
 import {Transaction} from "sequelize";
 import sequelize from "../db/mysql";
@@ -261,47 +261,27 @@ async function queryFilesInFolder(cid: string, host: string): Promise<IPFSFileLs
 async function analysisFolder(cid: string, fileId: number, logger: Logger) {
     try {
         const host = await Gateway.queryGatewayHostByCid(cid);
-        const data = await IPFSApi.fileLs(cid, host);
-        const result = _.get(data, 'Objects[0].Links', []);
+        let deep = 0;
+        let folders: Set<string> = new Set<string>([cid]);
         let resultFiles: IPFSFileLsStat[] = [];
-        let folders: FolderIndex[] = [];
-        const maxDeep = CONFIGS.pin.folderAnalysisMaxDeep as number;
-        let deep = 1;
-        if (!_.isEmpty(result)) {
-            resultFiles = _.concat(resultFiles, _.map(result, (f: any) => {
-                if (f.Type === 2) {
-                    folders.push({
-                        cid: f.Hash,
-                    })
-                }
-                return {
-                    cid: f.Hash,
-                    size: `${f.Size}`,
-                    type: f.Type === 2 ? FileType.file : FileType.folder
-                }
-            }));
-        }
-        while((deep <= maxDeep) || _.isEmpty(folders)) {
-            let deepFolders: FolderIndex[] = [];
-            for (const f of folders) {
-                const folderFiles = await queryFilesInFolder(f.cid, host);
+        while (deep < (CONFIGS.pin.folderAnalysisMaxDeep as number)) {
+            let deepFolders = new Set<string>();
+            for (const folder of folders) {
+                const folderFiles: IPFSFileLsStat[] = await queryFilesInFolder(folder, host);
                 if (!_.isEmpty(folderFiles)) {
-                    resultFiles = _.concat(resultFiles, _.map(result, (f: any) => {
-                        if (f.Type === 2) {
-                            deepFolders.push({
-                                cid: f.Hash,
-                            })
+                    resultFiles = _.concat(resultFiles, _.map(folderFiles, (i: IPFSFileLsStat) => {
+                        if (i.type === FileType.folder) {
+                            deepFolders.add(i.cid);
                         }
-                        return {
-                            cid: f.Hash,
-                            size: `${f.Size}`,
-                            type: f.Type === 2 ? FileType.file : FileType.folder
-                        }
+                        return i;
                     }));
                 }
             }
-            folders = deepFolders;
+            if (deepFolders.size === 0) {
+                break;
+            }
             deep++;
+            folders = deepFolders;
         }
         const allFiles = _(resultFiles).groupBy((i: IPFSFileLsStat) => i.cid).toPairs().map((i: any) => {
             return i[1][0] as IPFSFileLsStat;
@@ -320,6 +300,13 @@ async function analysisFolder(cid: string, fileId: number, logger: Logger) {
                 }
             });
         }
+        await PinFile.model.update({
+            analysis_status: PinFileAnalysisStatus.finished
+        },{
+            where: {
+                id: fileId
+            }
+        })
     } catch (e) {
         logger.error(`Analysis Folder failed: ${e.stack}`);
     }
@@ -340,7 +327,7 @@ export async function orderFiles() {
     const logger = defaultLogger(`file-order`);
     while(true) {
         try {
-            const pinFiles = await PinFile.model.findAll({
+            let pinFiles = await PinFile.model.findAll({
                 where: {
                     pin_status: PinFilePinStatus.queued,
                     deleted: Deleted.undeleted
@@ -354,14 +341,16 @@ export async function orderFiles() {
             }
             await api.isReadyOrError
             const seedList = (CONFIGS.crust.seed as string).split(',');
-            const chunkList = _.chunk(pinFiles, seedList.length);
+            const chunkList = _.chunk(pinFiles, 2);
             await Promise.all(_.map(seedList, async (seedBase64: string, i: number) => {
                 if (chunkList[i]) {
                     const seed = Buffer.from(seedBase64, 'base64').toString();
                     const krp = createKeyring(seed);
+                    await sleep(1000 * 2);
                     const balanceCheck = await checkingAccountBalance(seed);
                     if (balanceCheck) {
                         for (const file of chunkList[i]) {
+                            logger.debug(`Place order file: ${file.cid} by ${krp.address}`)
                             await placeOrderFile(file, krp, logger);
                             await sleep(CONFIGS.crust.orderTimeAwait as number);
                         }
@@ -381,26 +370,19 @@ export async function orderFiles() {
 async function placeOrderFile(file: any, krp: KeyringPair, logger: Logger) {
     let orderFailed = false;
     try {
-        const res = await timeoutOrError(
-            'Crust place order',
-            placeOrder(
-                krp,
-                file.cid,
-                file.file_size,
-                fromDecimal(CONFIGS.crust.tips).toFixed(0),
-                undefined
-            ),
-            CONFIGS.crust.transactionTimeout as number
+        await placeOrder(
+            krp,
+            file.cid,
+            file.file_size,
+            fromDecimal(CONFIGS.crust.tips).toFixed(0),
+            undefined
         );
-        if (!res) {
-            orderFailed = true;
-        }
     } catch (e) {
         logger.error(`Place order file: ${file.cid} failed: ${e.stack}`);
         await sleep(CONFIGS.crust.orderTimeAwait as number);
         orderFailed = true;
     } finally {
-        const retryTime = orderFailed ? (file.file_size + 1) : file.file_size;
+        const retryTime = orderFailed ? (file.order_retry_times + 1) : file.order_retry_times;
         const pinFailed = retryTime >= CONFIGS.crust.orderRetryTimes;
         const pinStatus = pinFailed ? PinFilePinStatus.failed : (orderFailed ? PinFilePinStatus.queued : PinFilePinStatus.pinning);
         if (pinFailed) {
@@ -409,6 +391,7 @@ async function placeOrderFile(file: any, krp: KeyringPair, logger: Logger) {
         }
         await PinFile.model.update({
             pin_status: pinStatus,
+            order_retry_times: retryTime
         }, {
             where: {
                 id: file.id
@@ -454,6 +437,7 @@ export async function updatePinFileStatus() {
         } catch (e) {
             logger.error(`Pin file err: ${e.stack}`);
         }
+        await sleep(1000);
     }
 }
 
@@ -509,7 +493,8 @@ export async function pinJobs() {
     const orderFilesJob = orderFiles();
     const reOrderJob = reOrderExpiringFiles();
     const analysisFolderJob = analysisPinFolderFiles();
-    return Promise.all([fileStatusJob, orderFilesJob, analysisFolderJob, reOrderJob]).catch(e => {
+    const jobs = [fileStatusJob, orderFilesJob, analysisFolderJob, reOrderJob];
+    return Promise.all(jobs).catch(e => {
         sendDinkTalkMsg(`${CONFIGS.common.project_name}(${CONFIGS.common.env}) pin job err`,
             `### ${CONFIGS.common.project_name}(${CONFIGS.common.env}) \n pin job err, please check ${e.message}`);
     });

@@ -41,7 +41,7 @@ export const CONFIGS = {
     },
     pin: {
         folderAnalysisThreadSize: getEnv('FOLDER_ANALYSIS_THREAD_SIZE', 3),
-        folderAnalysisMaxDeep: getEnv('FOLDER_ANALYSIS_MAX_SIZE', 2)
+        folderAnalysisMaxDeep: getEnv('FOLDER_ANALYSIS_MAX_DEEP', 10)
     }
 }
 
