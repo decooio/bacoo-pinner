@@ -16,19 +16,41 @@ export class IPFSApi {
         return { ...result.data };
     }
 
-    static async fileLs(cid: string, host: string): Promise<any> {
-        const result = await IPFSApi.ipfsCall(`${host}/api/v0/ls?arg=/ipfs/${cid}`);
+    static async fileLs(cid: string[], host: string): Promise<any> {
+        const result = await IPFSApi.ipfsCall(`${host}/api/v0/ls?${_.map(cid, i => `arg=/ipfs/${i}`).join('&')}`);
         return { ...result.data };
     }
 
+    static async refs(cid: string, host: string): Promise<any> {
+        let options: any = {
+            url: `${host}/api/v0/refs?arg=/ipfs/${cid}&recursive=true`,
+            method: 'POST',
+            headers: { Authorization: `Basic ${CONFIGS.ipfs.authSignature}` },
+            timeout: DEFAULT_IPFS_CALL_TIMEOUT,
+            transformResponse: (res: any) => {
+                const split = res.split('\n');
+                const list: any[] = [];
+                for (const s of split) {
+                    if (_.isEmpty(s)) {
+                        continue;
+                    }
+                    list.push(JSON.parse(s))
+                }
+                return list;
+            }
+        }
+        const result = await http.request(options);
+        return { ...result.data };
+    }
 
     private static async ipfsCall(url: string, timeout: number = DEFAULT_IPFS_CALL_TIMEOUT): Promise<any> {
-        const result = await http.request({
+        let options: any = {
             url,
             method: 'POST',
             headers: { Authorization: `Basic ${CONFIGS.ipfs.authSignature}` },
-            timeout: DEFAULT_IPFS_CALL_TIMEOUT
-        });
+            timeout
+        }
+        const result = await http.request(options);
         return result;
     }
 }

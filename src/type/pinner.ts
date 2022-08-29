@@ -23,6 +23,11 @@ export enum FileType {
     folder
 }
 
+export enum IPFSFileType {
+    file = 2,
+    folder = 1
+}
+
 export class PinObjectsQuery {
     apikeyId: number;
     cid: string[];

@@ -1,4 +1,4 @@
-import {FileType, Pin, PinFileAnalysisStatus, PinFilePinStatus, PinStatus} from "../type/pinner";
+import {FileType, IPFSFileType, Pin, PinFileAnalysisStatus, PinFilePinStatus, PinStatus} from "../type/pinner";
 import {Deleted} from "../type/common";
 import {PinObject} from "../dao/PinObject";
 import {fromDecimal, sleep, uuid} from "../util/common";
@@ -221,7 +221,8 @@ export async function analysisPinFolderFiles() {
                 attributes: ['id', 'cid'],
                 where: {
                     deleted: Deleted.undeleted,
-                    analysis_status: PinFileAnalysisStatus.unfinished
+                    analysis_status: PinFileAnalysisStatus.unfinished,
+                    file_type: FileType.folder
                 },
                 order: [['id', 'asc']],
                 limit: 30
@@ -245,48 +246,23 @@ export async function analysisPinFolderFiles() {
     }
 }
 
-async function queryFilesInFolder(cid: string, host: string): Promise<IPFSFileLsStat[]> {
-    const data = await IPFSApi.fileLs(cid, host);
-    const result = _.get(data, 'Objects[0].Links', []);
-    if (_.isEmpty(result)) {
-        return [];
-    }
-    return _.map(result, (f: any) => ({
-        cid: f.Hash,
-        size: `${f.Size}`,
-        type: f.Type === 2 ? FileType.file : FileType.folder
-    }));
-}
-
 async function analysisFolder(cid: string, fileId: number, logger: Logger) {
     try {
         const host = await Gateway.queryGatewayHostByCid(cid);
-        let deep = 0;
-        let folders: Set<string> = new Set<string>([cid]);
-        let resultFiles: IPFSFileLsStat[] = [];
-        while (deep < (CONFIGS.pin.folderAnalysisMaxDeep as number)) {
-            let deepFolders = new Set<string>();
-            for (const folder of folders) {
-                const folderFiles: IPFSFileLsStat[] = await queryFilesInFolder(folder, host);
-                if (!_.isEmpty(folderFiles)) {
-                    resultFiles = _.concat(resultFiles, _.map(folderFiles, (i: IPFSFileLsStat) => {
-                        if (i.type === FileType.folder) {
-                            deepFolders.add(i.cid);
-                        }
-                        return i;
-                    }));
-                }
-            }
-            if (deepFolders.size === 0) {
-                break;
-            }
-            deep++;
-            folders = deepFolders;
-        }
-        const allFiles = _(resultFiles).groupBy((i: IPFSFileLsStat) => i.cid).toPairs().map((i: any) => {
-            return i[1][0] as IPFSFileLsStat;
-        }).value();
-        for (const f of allFiles) {
+        const allFilesInFolder = await IPFSApi.refs(cid, host);
+        const childCid = _.concat([cid], _.map(allFilesInFolder, (i: any) => `${i.Ref}`));
+        const allChildStat = await IPFSApi.fileLs(childCid, host);
+        const childFileMap = new Map<string, ChildFileStat>();
+        _.each(allChildStat.Objects, (i: any) => {
+            _.each(i.Links, (f: any) => {
+                childFileMap.set(f.Hash, {
+                    cid: f.Hash,
+                    size: f.Size,
+                    type: f.Type === IPFSFileType.folder ? FileType.folder : FileType.file
+                })
+            })
+        });
+        for (const f of childFileMap.values()) {
             await PinFolderFile.model.findOrCreate( {
                 defaults: {
                     pin_file_id: fileId,
@@ -306,21 +282,16 @@ async function analysisFolder(cid: string, fileId: number, logger: Logger) {
             where: {
                 id: fileId
             }
-        })
+        });
     } catch (e) {
         logger.error(`Analysis Folder failed: ${e.stack}`);
     }
 }
 
-
-interface IPFSFileLsStat {
+interface ChildFileStat {
     cid: string,
     size: string,
     type: FileType
-}
-
-interface FolderIndex {
-    cid: string,
 }
 
 export async function orderFiles() {

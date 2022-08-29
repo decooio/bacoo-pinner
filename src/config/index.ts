@@ -25,7 +25,6 @@ export const CONFIGS = {
         tips: getEnv('CRUST_TIPS', 0),
         validFileSize: getEnv('VALID_FILE_REPLICAS', 30),
         orderTimeAwait: getEnv('ORDER_TIME_AWAIT', 3000),
-        orderFailedTimeAwait: getEnv('ORDER_FAILED_TIME_AWAIT', 60000),
         blockNumberForExpireOrder: getEnv('EXPIRE_ORDER_BLOCK_NUMBER', 10 * 60 * 24 * 30),
         orderRetryTimes: getEnv('ORDER_RETRY_TIMES', 3),
         minimumAmount: getEnv('MINIMUM_AMOUNT', 1),
