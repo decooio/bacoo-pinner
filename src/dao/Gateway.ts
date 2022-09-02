@@ -42,7 +42,8 @@ export class Gateway {
         }
         const gateway = await this.model.findOne({
             where: {
-                node_type: NodeType.free
+                node_type: NodeType.free,
+                valid: Valid.valid
             },
             order: [['id', 'desc']],
             limit: 1,
