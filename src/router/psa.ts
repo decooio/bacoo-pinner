@@ -74,6 +74,7 @@ router.post(
         body('cid').isString().notEmpty().withMessage('cid not empty'),
         body('name').optional().isString(),
         body('origins').optional().isArray(),
+        body('meta').optional().isObject(),
     ]),
     async (req: any, res) => {
         const r = await replacePin(req.apikeyId, req.userId, req.params.requestId, Pin.parsePinFromRequest(req));
@@ -87,6 +88,7 @@ router.post(
         body('cid').isString().notEmpty().withMessage('cid not empty'),
         body('name').optional().isString(),
         body('origins').optional().isArray(),
+        body('meta').optional().isObject(),
     ]),
     async (req: any, res) => {
         const r = await pinByCid(req.userId, req.apikeyId, Pin.parsePinFromRequest(req));

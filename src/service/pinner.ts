@@ -1,5 +1,5 @@
 import {FileType, IPFSFileType, Pin, PinFileAnalysisStatus, PinFilePinStatus, PinStatus} from "../type/pinner";
-import {Deleted} from "../type/common";
+import {Deleted, Valid} from "../type/common";
 import {PinObject} from "../dao/PinObject";
 import {fromDecimal, sleep, uuid} from "../util/common";
 import {CONFIGS} from "../config";
@@ -18,6 +18,7 @@ import {api} from "./crust/api";
 import {KeyringPair} from "@polkadot/keyring/types";
 import {Logger} from "winston";
 import {PinFolderFile} from "../dao/PinFolderFile";
+import {PinObjectGateway} from "../dao/PinObjectGateway";
 
 const dayjs = require("dayjs");
 const moment = require('moment');
@@ -118,23 +119,50 @@ export async function pinByCid(userId: number, apikeyId: number, pin: Pin): Prom
             cid: pin.cid
         }
     });
-
+    let gateway = await Gateway.model.findOne({
+        where: {
+            id: _.get(pin, 'meta.gatewayId', 0),
+            valid: Valid.valid
+        }
+    });
     if (!_.isEmpty(existPinObject) && !_.isEmpty(existPinFile) && existPinObject.deleted === Deleted.undeleted) {
+        if (!_.isEmpty(gateway)) {
+            const pg = await PinObjectGateway.model.findOne({
+                attributes: ['pin_object_id', 'gateway_id'],
+                where: {
+                    pin_object_id: existPinObject.id,
+                    gateway_id: gateway.id
+                }
+            });
+            if (_.isEmpty(pg)) {
+                await PinObjectGateway.model.create({
+                    pin_object_id: existPinObject.id,
+                    gateway_id: gateway.id,
+                    update_time: dayjs().format('YYYY-MM-DD HH:mm:ss')
+                }, {
+                    ignoreDuplicates: false,
+                    updateOnDuplicate: [
+                        'pin_object_id',
+                        'gateway_id',
+                        'update_time'
+                    ],
+                })
+            }
+        }
         const data = {
             ...existPinObject.dataValues,
             status: existPinFile.pin_status
         };
         const result = PinStatus.parseBaseData(data);
-        logger.debug(`${JSON.stringify(result)}`);
-        logger.debug(`${JSON.stringify(data)}`);
         return result;
     }
-
     let fileType = !_.isEmpty(existPinFile) ? existPinFile.file_type : FileType.file;
     let fileSize = !_.isEmpty(existPinFile) ? existPinFile.file_size : 0;
+    if (_.isEmpty(gateway)) {
+        gateway = !_.isEmpty(gateway) ? gateway : (await Gateway.queryGatewayHostByApiKeyId(userId));
+    }
     if (_.isEmpty(existPinFile)) {
-        const host = await Gateway.queryGatewayHostByApiKeyId(userId);
-        const fileStat = await new IPFSApi(host).fileStat(pin.cid);
+        const fileStat = await new IPFSApi(gateway.host).fileStat(pin.cid);
         fileType = fileStat.Type === 'file' ? FileType.file : FileType.folder;
         fileSize = fileStat.CumulativeSize;
     }
@@ -187,7 +215,7 @@ export async function pinByCid(userId: number, apikeyId: number, pin: Pin): Prom
         });
         if (_.isEmpty(existPinFile)) {
             await PinFile.model.create(pinFile, {transaction})
-        } else if (resetPinFile){
+        } else if (resetPinFile) {
             await PinFile.model.update(pinFile, {
                 where: {
                     id: existPinFile.id
@@ -205,6 +233,19 @@ export async function pinByCid(userId: number, apikeyId: number, pin: Pin): Prom
                 transaction
             })
         }
+        await PinObjectGateway.model.create({
+            pin_object_id: existPinObject.id,
+            gateway_id: gateway.id,
+            update_time: dayjs().format('YYYY-MM-DD HH:mm:ss')
+        }, {
+            ignoreDuplicates: false,
+            updateOnDuplicate: [
+                'pin_object_id',
+                'gateway_id',
+                'update_time'
+            ],
+            transaction
+        })
     });
     return PinStatus.parseBaseData({
         ...existPinObject,

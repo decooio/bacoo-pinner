@@ -4,6 +4,7 @@ import {NodeType} from "../type/gateway";
 import {Deleted, Valid} from "../type/common";
 import {CommonDAO} from "./Common";
 import * as _ from "lodash";
+import {gt} from "lodash";
 
 export class Gateway {
     static model = sequelize.define(
@@ -30,17 +31,19 @@ export class Gateway {
         }
     );
 
-    static async queryGatewayHostByApiKeyId(userId: number): Promise<string | null> {
+    static async queryGatewayHostByApiKeyId(userId: number): Promise<{id: number, host: string } | null> {
         const result = await CommonDAO.queryForObj('SELECT\n' +
-            '\tg.`host` \n' +
+            '\tg.`host`, \n' +
+            '\tg.`id` \n' +
             'FROM\n' +
             '\tgateway_user gu\n' +
             '\tJOIN gateway g ON g.id = gu.gateway_id\n' +
             'WHERE gu.user_id = ? and g.valid = ? and g.node_type = ? limit 1', [userId, Valid.valid, NodeType.premium]);
         if (!_.isEmpty(result)) {
-            return result.host;
+            return result;
         }
         const gateway = await this.model.findOne({
+            attributes: ['id', 'host'],
             where: {
                 node_type: NodeType.free,
                 valid: Valid.valid
@@ -48,7 +51,10 @@ export class Gateway {
             order: [['id', 'desc']],
             limit: 1,
         });
-        return gateway.host;
+        return {
+            id: gateway.id,
+            host: gateway.host
+        };
     }
 
     static async queryGatewayHostByCid(cid: string): Promise<string | null> {
