@@ -22,7 +22,7 @@ export const serverStart = async (port: string | number) => {
     app.use('/psa', auth, psa);
     app.use((err: any, req: any, res: any, next: any) => {
         logger.error(`Server err: ${err.stack}`)
-        res.status(500).json(Failure.commonErr('server err'));
+        res.status(500).json(Failure.commonErr('服务器响应异常'));
     });
     logger.info(`Server start on: ${port}`);
     app.listen(port);

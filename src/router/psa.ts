@@ -62,7 +62,7 @@ router.get(
 router.get('/pins/:requestId', async (req: any, res) => {
     const r = await PinObject.selectPinObjectByRequestIdAndUserId(req.params.requestId, req.apikeyId)
     if (_.isEmpty(r)) {
-        res.status(400).json(Failure.commonErr('not found'));
+        res.status(400).json(Failure.commonErr('无效的资源'));
     } else {
         res.json(r);
     }

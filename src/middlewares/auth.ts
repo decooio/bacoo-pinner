@@ -15,7 +15,7 @@ export async function auth(req: any, res: any, next: any) {
         !_.includes(req.headers.authorization, 'Basic ') &&
         !_.includes(req.headers.authorization, 'Bearer ')
     ) {
-        return res.status(400).json(Failure.commonErr('no signature'));
+        return res.status(400).json(Failure.commonErr('无效的签名'));
     }
 
     try {
@@ -58,7 +58,7 @@ export async function auth(req: any, res: any, next: any) {
     } catch(e) {
         logger.error(`Decode signature failed: ${e.stack}`);
     }
-    return res.status(400).json(Failure.commonErr('Invalid signature'));
+    return res.status(400).json(Failure.commonErr('无效的签名'));
 }
 
 function substrateAuth(address: string, signature: string): boolean {
