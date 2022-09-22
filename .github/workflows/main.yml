@@ -5,7 +5,7 @@ on:
 
 jobs:
   build:
-    if: github.repository == 'decooio/bacoo-cloud'
+    if: github.repository == 'decooio/bacoo-pinner'
     runs-on: ubuntu-latest
     strategy:
       matrix:
