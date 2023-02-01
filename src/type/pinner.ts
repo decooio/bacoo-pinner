@@ -136,9 +136,11 @@ export enum PinObjectStatus {
 
 export class Failure {
     error: FailureError;
+    message: string;
 
     constructor(error: FailureError) {
         this.error = error;
+        this.message = error.details;
     }
 
     static commonErr(err: string): Failure {

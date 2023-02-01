@@ -86,7 +86,7 @@ router.post(
     '/pins',
     validate([
         body('cid').isString().notEmpty().withMessage('cid not empty'),
-        body('name').optional().isString(),
+        body('name').optional().isString().isLength({max: 64, min: 1}).withMessage('文件名长度为1-64位'),
         body('origins').optional().isArray(),
         body('meta').optional().isObject(),
     ]),
